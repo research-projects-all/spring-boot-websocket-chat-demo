@@ -29,24 +29,12 @@ jobs:
           java-version: '17'
           cache: maven
 
-      - name: Compile all Maven projects
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          find . -name pom.xml -not -path '*/target/*' | sort | while read -r pom; do
-            echo "Compiling $(dirname "$pom")"
-            mvn -B -q -f "$pom" -DskipTests clean compile
-          done
-
-      - name: SonarCloud scan
-        uses: SonarSource/sonarqube-scan-action@v8.1.0
+      - name: Build and analyze
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        with:
-          args: >
-            -Dsonar.organization=research-projects-all
+        run: |
+          chmod +x ./mvnw
+          ./mvnw -B -DskipTests clean verify org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
+            -Dsonar.organization=research-projects-all \
             -Dsonar.projectKey=research-projects-all_spring-boot-websocket-chat-demo
-            -Dsonar.sources=.
-            -Dsonar.java.binaries=**/target/classes
-            -Dsonar.exclusions=**/target/**,**/.mvn/**,**/mvnw,**/mvnw.cmd
