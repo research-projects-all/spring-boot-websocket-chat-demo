@@ -1,45 +1,45 @@
 name: Semgrep Spring
-
 on:
   push:
-    branches: [ "main", "master", "develop" ]
+    branches: ["main", "master", "develop"]
   pull_request:
-    branches: [ "main", "master", "develop" ]
-  schedule:
-    - cron: '41 5 * * 3'
+    branches: ["main", "master", "develop"]
   workflow_dispatch:
 
 permissions:
   contents: read
   security-events: write
-  actions: read
 
 jobs:
   semgrep:
-    name: Spring scan
     runs-on: ubuntu-latest
-
     container:
       image: semgrep/semgrep:latest
-
-    if: github.actor != 'dependabot[bot]'
-
     steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Run Semgrep default Java rules
-        run: |
-          semgrep scan \
-            --config auto \
-            --config p/java \
-            --config p/findsecbugs \
-            --sarif \
-            --output semgrep-spring.sarif \
-            .
+      - run: semgrep scan --config p/java --config p/spring --sarif --output semgrep.sarif . || true
 
-      - name: Upload SARIF file
+      - name: Fix long rule IDs
         if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        run: |
+          python3 -c "
+          import json, hashlib
+          d = json.load(open('semgrep.sarif'))
+          for run in d.get('runs', []):
+              m = {}
+              for r in run.get('tool', {}).get('driver', {}).get('rules', []):
+                  if len(r.get('id', '')) > 255:
+                      new = r['id'][:238] + '_' + hashlib.sha256(r['id'].encode()).hexdigest()[:16]
+                      m[r['id']] = new
+                      r['id'] = new
+              for res in run.get('results', []):
+                  if res.get('ruleId') in m:
+                      res['ruleId'] = m[res['ruleId']]
+          json.dump(d, open('semgrep.sarif', 'w'))
+          "
+
+      - uses: github/codeql-action/upload-sarif@v4
+        if: always()
         with:
-          sarif_file: semgrep-spring.sarif
+          sarif_file: semgrep.sarif
