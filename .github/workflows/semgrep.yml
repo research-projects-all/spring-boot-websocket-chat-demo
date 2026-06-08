@@ -1,116 +1,42 @@
-name: Semgrep Spring Java
+name: Semgrep Spring Java Managed SAST
 
 on:
   push:
-    branches: ["main", "master", "develop"]
+    branches: ["master", "main", "develop"]
   pull_request:
-    branches: ["main", "master", "develop"]
+    branches: ["master", "main", "develop"]
+  schedule:
+    - cron: "15 6 * * 2"
   workflow_dispatch:
 
 permissions:
   contents: read
   security-events: write
+  actions: read
 
 jobs:
   semgrep:
-    name: Semgrep
+    name: Semgrep Spring Java Managed SAST
     runs-on: ubuntu-latest
     container:
       image: semgrep/semgrep:latest
+
+    env:
+      SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Run Semgrep
+      - name: Run Semgrep managed scan
         run: |
-          semgrep scan \
-            --config p/java \
-            --config p/spring \
-            --config p/findsecbugs \
+          semgrep ci \
             --sarif \
-            --output semgrep.sarif \
-            . || true
-
-      - name: Normalize SARIF for GitHub
-        if: always()
-        run: |
-          python3 - <<'PY'
-          import json
-          import hashlib
-          import os
-
-          path = "semgrep.sarif"
-
-          if not os.path.exists(path):
-              empty_sarif = {
-                  "version": "2.1.0",
-                  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
-                  "runs": [
-                      {
-                          "tool": {
-                              "driver": {
-                                  "name": "Semgrep",
-                                  "informationUri": "https://semgrep.dev/",
-                                  "rules": []
-                              }
-                          },
-                          "results": []
-                      }
-                  ]
-              }
-
-              with open(path, "w", encoding="utf-8") as f:
-                  json.dump(empty_sarif, f)
-
-              raise SystemExit(0)
-
-          with open(path, "r", encoding="utf-8") as f:
-              d = json.load(f)
-
-          severity_map = {
-              "critical": "9.0",
-              "high": "8.0",
-              "medium": "5.0",
-              "low": "2.0",
-              "info": "0.0",
-              "informational": "0.0",
-              "note": "0.0",
-              "warning": "5.0",
-              "error": "8.0",
-          }
-
-          for run in d.get("runs", []):
-              rule_id_map = {}
-
-              for rule in run.get("tool", {}).get("driver", {}).get("rules", []):
-                  rid = rule.get("id", "")
-
-                  if len(rid) > 255:
-                      new_id = rid[:238] + "_" + hashlib.sha256(rid.encode()).hexdigest()[:16]
-                      rule_id_map[rid] = new_id
-                      rule["id"] = new_id
-
-                  props = rule.setdefault("properties", {})
-                  value = props.get("security-severity")
-
-                  if value is not None:
-                      try:
-                          score = float(value)
-                          props["security-severity"] = str(score) if 0.0 <= score <= 10.0 else "0.0"
-                      except (TypeError, ValueError):
-                          props["security-severity"] = severity_map.get(str(value).lower(), "0.0")
-
-              for result in run.get("results", []):
-                  if result.get("ruleId") in rule_id_map:
-                      result["ruleId"] = rule_id_map[result["ruleId"]]
-
-          with open(path, "w", encoding="utf-8") as f:
-              json.dump(d, f)
-          PY
+            --output semgrep.sarif
 
       - name: Upload SARIF to GitHub Code Scanning
         if: always()
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: semgrep.sarif
+          category: semgrep-spring-java-managed
